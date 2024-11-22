@@ -23,7 +23,7 @@ class BallisticCalculator:
         time_of_flight = distance_feet / muzzle_velocity_fps
         
         # Basic drop calculation (gravity only)
-        drop_feet = 0.5 * self.GRAVITY * time_of_flight * time_of_flight
+        drop_feet = 0.5 * self.GRAVITY * time_of_flight**2
         
         # Convert to inches and adjust for sight height
         drop_inches = drop_feet * 12
@@ -112,6 +112,70 @@ class ScopeAdjustmentApp:
         # Main tab widgets
         self.create_main_widgets()
         self.create_history_widgets()
+    
+    def create_image_frame(self, parent_frame):
+        """Create the frame that will hold the target image and canvas"""
+        # Image handling frame
+        image_frame = ttk.LabelFrame(parent_frame, text="Target Image")
+        image_frame.pack(padx=5, pady=5, fill="both", expand=True)
+        
+        # Create the upload button
+        self.upload_button = ttk.Button(image_frame, text="Upload Image", command=self.upload_image)
+        self.upload_button.pack(pady=5)
+        
+        # Create the canvas for displaying the image and marking shots
+        self.canvas = tk.Canvas(image_frame, width=500, height=500, bg='lightgray')
+        self.canvas.pack(padx=5, pady=5)
+        
+        # Add a label with instructions
+        ttk.Label(image_frame, 
+                text="Upload a target image and use 'Mark Shots' to indicate shot locations",
+                wraplength=400).pack(pady=5)
+
+    def create_control_buttons(self, parent_frame):
+        """Create the frame containing all control buttons"""
+        # Control buttons frame
+        control_frame = ttk.Frame(parent_frame)
+        control_frame.pack(padx=5, pady=5, fill='x')
+        
+        # Button frame for measurement controls
+        measurement_frame = ttk.LabelFrame(control_frame, text="Measurement Controls")
+        measurement_frame.pack(padx=5, pady=5, fill='x')
+        
+        # Create a frame for the adjustment type radio buttons
+        adjustment_type_frame = ttk.Frame(measurement_frame)
+        adjustment_type_frame.pack(pady=5)
+        
+        # Add radio buttons for MOA/MIL selection
+        ttk.Label(adjustment_type_frame, text="Adjustment Type:").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(adjustment_type_frame, 
+                        text="MOA", 
+                        variable=self.adjustment_type,
+                        value="MOA").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(adjustment_type_frame,
+                        text="MIL",
+                        variable=self.adjustment_type,
+                        value="MIL").pack(side=tk.LEFT, padx=5)
+        
+        # Create a frame for the action buttons
+        button_frame = ttk.Frame(measurement_frame)
+        button_frame.pack(pady=5)
+        
+        # Add the action buttons
+        self.mark_shots_button = ttk.Button(button_frame,
+                                        text="Mark Shots",
+                                        command=self.start_marking_shots)
+        self.mark_shots_button.pack(side=tk.LEFT, padx=5)
+        
+        self.clear_shots_button = ttk.Button(button_frame,
+                                        text="Clear Shots",
+                                        command=self.clear_shots)
+        self.clear_shots_button.pack(side=tk.LEFT, padx=5)
+        
+        self.calculate_button = ttk.Button(button_frame,
+                                        text="Calculate Adjustment",
+                                        command=self.calculate_adjustment)
+        self.calculate_button.pack(side=tk.LEFT, padx=5)
 
     def create_main_widgets(self):
         # Create notebook for sub-tabs in main tab
