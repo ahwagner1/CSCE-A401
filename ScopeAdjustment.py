@@ -160,7 +160,7 @@ class ScopeAdjustmentApp:
         
         # Ballistics tab
         ballistics_tab = ttk.Frame(main_notebook)
-        main_notebook.add(ballistics_tab, text='Ballistics')
+        main_notebook.add(ballistics_tab, text='Bullet Information')
         
         # Target information frame
         target_frame = ttk.LabelFrame(target_tab, text="Target Information")
