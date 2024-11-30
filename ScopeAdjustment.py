@@ -6,37 +6,6 @@ import sqlite3
 from datetime import datetime
 import os
 
-class BallisticCalculator:
-    """Separate class to handle ballistic calculations"""
-    
-    def __init__(self):
-        self.GRAVITY = 32.174  # ft/s²
-        self.YARDS_TO_FEET = 3
-    
-    def calculate_drop(self, distance_yards, muzzle_velocity_fps, ballistic_coefficient, sight_height_inches=1.5):
-        """
-        Calculate bullet drop at given distance
-        Returns drop in inches
-        """
-        # Convert distance to feet
-        distance_feet = distance_yards * self.YARDS_TO_FEET
-        time_of_flight = distance_feet / muzzle_velocity_fps
-        
-        # Basic drop calculation (gravity only)
-        drop_feet = 0.5 * self.GRAVITY * time_of_flight**2
-        
-        # Convert to inches and adjust for sight height
-        drop_inches = drop_feet * 12
-        
-        # Apply very basic air resistance using BC
-        # This is a simplified model - real ballistics are more complex
-        air_resistance_factor = 1 - ballistic_coefficient
-        actual_drop = drop_inches * (1 + air_resistance_factor)
-        
-        # Adjust for sight height
-        actual_drop -= sight_height_inches
-        
-        return actual_drop
 
 class ScopeAdjustmentApp:
     def __init__(self, master):
@@ -51,17 +20,17 @@ class ScopeAdjustmentApp:
         self.adjustment_type = tk.StringVar(value="MOA")
         
         # Ballistic variables
-        self.muzzle_velocity = tk.StringVar(value="2700")  # Default 2700 fps
-        self.ballistic_coefficient = tk.StringVar(value="0.5")  # Default BC
-        self.sight_height = tk.StringVar(value="1.5")  # Default 1.5 inches
+        self.bullet_manufacturer = tk.StringVar()
+        self.bullet_model = tk.StringVar()
+        self.bullet_weight = tk.StringVar()
         
-        self.ballistic_calculator = BallisticCalculator()
 
         # Create data directory if it doesn't exist
         self.data_dir = os.path.join(os.path.expanduser("~"), "scope_adjustment_data")
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
             
+        print(self.data_dir)
         self.setup_database()
         self.current_user = None
         self.create_widgets()
@@ -91,6 +60,9 @@ class ScopeAdjustmentApp:
                 horizontal_adjustment FLOAT,
                 vertical_adjustment FLOAT,
                 adjustment_type TEXT,
+                bullet_manufacturer TEXT,
+                bullet_model TEXT,
+                bullet_weight INTEGER,
                 FOREIGN KEY (user_id) REFERENCES users (id)
             )
         ''')
@@ -204,17 +176,17 @@ class ScopeAdjustmentApp:
         ttk.Entry(target_frame, textvariable=self.target_distance).pack()
         
         # Ballistics information frame
-        ballistics_frame = ttk.LabelFrame(ballistics_tab, text="Ballistic Information")
+        ballistics_frame = ttk.LabelFrame(ballistics_tab, text="Bullet Information")
         ballistics_frame.pack(padx=5, pady=5, fill="x")
         
-        ttk.Label(ballistics_frame, text="Muzzle Velocity (fps):").pack()
-        ttk.Entry(ballistics_frame, textvariable=self.muzzle_velocity).pack()
+        ttk.Label(ballistics_frame, text="Bullet Manufacturer:").pack()
+        ttk.Entry(ballistics_frame, textvariable=self.bullet_manufacturer).pack()
         
-        ttk.Label(ballistics_frame, text="Ballistic Coefficient:").pack()
-        ttk.Entry(ballistics_frame, textvariable=self.ballistic_coefficient).pack()
+        ttk.Label(ballistics_frame, text="Bullet Model:").pack()
+        ttk.Entry(ballistics_frame, textvariable=self.bullet_model).pack()
         
-        ttk.Label(ballistics_frame, text="Sight Height (inches):").pack()
-        ttk.Entry(ballistics_frame, textvariable=self.sight_height).pack()
+        ttk.Label(ballistics_frame, text="Bullet Grain:").pack()
+        ttk.Entry(ballistics_frame, textvariable=self.bullet_weight).pack()
         
         # Rest of the widgets...
         self.create_image_frame(target_tab)
@@ -244,7 +216,7 @@ class ScopeAdjustmentApp:
         ttk.Button(control_frame, text="Clear History", command=self.clear_history).pack(side=tk.LEFT, padx=5)
         
         # Create Treeview for history
-        columns = ('Date', 'Distance', 'Horizontal', 'Vertical', 'Type')
+        columns = ('Date', 'Distance', 'Horizontal', 'Vertical', 'Type', 'Bullet Manufacturer', 'Bullet Model', 'Bullet Grain')
         self.history_tree = ttk.Treeview(self.history_frame, columns=columns, show='headings')
         
         # Set column headings
@@ -306,20 +278,20 @@ class ScopeAdjustmentApp:
             target_width = float(self.target_width.get())
             target_height = float(self.target_height.get())
             target_distance = float(self.target_distance.get())
-            muzzle_velocity = float(self.muzzle_velocity.get())
-            ballistic_coefficient = float(self.ballistic_coefficient.get())
-            sight_height = float(self.sight_height.get())
+            #muzzle_velocity = float(self.muzzle_velocity.get())
+            #ballistic_coefficient = float(self.ballistic_coefficient.get())
+            #sight_height = float(self.sight_height.get())
         except ValueError:
             messagebox.showerror("Error", "Please enter valid numeric values for all fields")
             return
         
         # Calculate bullet drop
-        bullet_drop = self.ballistic_calculator.calculate_drop(
-            target_distance, 
-            muzzle_velocity,
-            ballistic_coefficient,
-            sight_height
-        )
+        #bullet_drop = self.ballistic_calculator.calculate_drop_2(
+        #    target_distance, 
+        #    muzzle_velocity,
+        #    ballistic_coefficient,
+        #    sight_height
+        #)
         
         center_x, center_y = 250, 250
         
@@ -335,7 +307,7 @@ class ScopeAdjustmentApp:
         adjustment_y = (diff_y / 500) * target_height
         
         # Add bullet drop to vertical adjustment
-        adjustment_y += bullet_drop
+        #adjustment_y += bullet_drop
         
         # Convert to MOA or MIL based on selection
         if self.adjustment_type.get() == "MOA":
@@ -350,23 +322,25 @@ class ScopeAdjustmentApp:
             unit = "MIL"
         
         # Save to history
-        self.save_calibration(target_distance, adjustment_x_angular, adjustment_y_angular, unit)
+        self.save_calibration(target_distance, adjustment_x_angular, adjustment_y_angular, unit,
+                              self.bullet_manufacturer.get(), self.bullet_model.get(), int(self.bullet_weight.get()))
         
         # Show results
         messagebox.showinfo("Adjustment Needed", 
                           f"Horizontal: {adjustment_x_angular:.2f} {unit}\n"
                           f"Vertical: {adjustment_y_angular:.2f} {unit}\n"
-                          f"Bullet Drop: {bullet_drop:.2f} inches\n"
+                          #f"Bullet Drop: {bullet_drop:.2f} inches\n"
                           f"At {target_distance} yards")
 
-    def save_calibration(self, distance, horizontal, vertical, adjustment_type):
+    def save_calibration(self, distance, horizontal, vertical, adjustment_type, bullet_manufacturer, bullet_model, bullet_weight):
         """Save calibration data to database"""
         user_id = self.current_user if self.current_user else 1  # Default to user 1 if no user system
         self.cursor.execute('''
             INSERT INTO calibration_history 
-            (user_id, date, target_distance, horizontal_adjustment, vertical_adjustment, adjustment_type)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, datetime.now(), distance, horizontal, vertical, adjustment_type))
+            (user_id, date, target_distance, horizontal_adjustment, vertical_adjustment,
+            adjustment_type, bullet_manufacturer, bullet_model, bullet_weight)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (user_id, datetime.now(), distance, horizontal, vertical, adjustment_type, bullet_manufacturer, bullet_model, bullet_weight))
         self.conn.commit()
         self.load_history()
 
@@ -378,7 +352,8 @@ class ScopeAdjustmentApp:
         
         # Load history from database
         self.cursor.execute('''
-            SELECT date, target_distance, horizontal_adjustment, vertical_adjustment, adjustment_type
+            SELECT date, target_distance, horizontal_adjustment, vertical_adjustment, adjustment_type,
+                    bullet_manufacturer, bullet_model, bullet_weight
             FROM calibration_history
             ORDER BY date DESC
             LIMIT 50
@@ -389,7 +364,7 @@ class ScopeAdjustmentApp:
             self.history_tree.insert('', 'end', values=(date, f"{row[1]} yards", 
                                                       f"{row[2]:.2f} {row[4]}", 
                                                       f"{row[3]:.2f} {row[4]}", 
-                                                      row[4]))
+                                                      row[4], row[5], row[6], row[7]))
 
 if __name__ == "__main__":
     root = tk.Tk()
