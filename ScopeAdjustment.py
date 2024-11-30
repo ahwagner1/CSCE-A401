@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
-import numpy as np
 import sqlite3
 from datetime import datetime
 import os
@@ -14,29 +13,30 @@ class ScopeAdjustmentApp:
         self.image_path = None
         self.image = None
         self.shot_coordinates = []
+        self.target_center = None  # Store custom target center coordinates
+        self.marking_mode = tk.StringVar(value="shots")  # Track current marking mode
         self.target_width = tk.StringVar()
         self.target_height = tk.StringVar()
         self.target_distance = tk.StringVar()
         self.adjustment_type = tk.StringVar(value="MOA")
         
-        # Ballistic variables
+        # Bullet variables
         self.bullet_manufacturer = tk.StringVar()
         self.bullet_model = tk.StringVar()
         self.bullet_weight = tk.StringVar()
-        
 
         # Create data directory if it doesn't exist
         self.data_dir = os.path.join(os.path.expanduser("~"), "scope_adjustment_data")
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
             
-        print(self.data_dir)
         self.setup_database()
         self.current_user = None
-        self.create_widgets()
+        self.create_notebook()
         
     def setup_database(self):
         """Initialize SQLite database for storing calibration history and user profiles"""
+
         # Store database in user's home directory
         db_path = os.path.join(self.data_dir, 'scope_adjustments.db')
         self.conn = sqlite3.connect(db_path)
@@ -68,7 +68,9 @@ class ScopeAdjustmentApp:
         ''')
         self.conn.commit()
 
-    def create_widgets(self):
+    def create_notebook(self):
+        """Create the notebook to hold the main and history tabs"""
+        
         # Create notebook for tabs
         self.notebook = ttk.Notebook(self.master)
         self.notebook.pack(fill='both', expand=True)
@@ -81,12 +83,13 @@ class ScopeAdjustmentApp:
         self.history_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.history_frame, text='History')
         
-        # Main tab widgets
+        # Create the widgets in each tab
         self.create_main_widgets()
         self.create_history_widgets()
     
     def create_image_frame(self, parent_frame):
         """Create the frame that will hold the target image and canvas"""
+
         # Image handling frame
         image_frame = ttk.LabelFrame(parent_frame, text="Target Image")
         image_frame.pack(padx=5, pady=5, fill="both", expand=True)
@@ -95,7 +98,7 @@ class ScopeAdjustmentApp:
         self.upload_button = ttk.Button(image_frame, text="Upload Image", command=self.upload_image)
         self.upload_button.pack(pady=5)
         
-        # Create the canvas for displaying the image and marking shots
+        # Create the canvas for displaying the image and marking shots/center
         self.canvas = tk.Canvas(image_frame, width=500, height=500, bg='lightgray')
         self.canvas.pack(padx=5, pady=5)
         
@@ -106,15 +109,15 @@ class ScopeAdjustmentApp:
 
     def create_control_buttons(self, parent_frame):
         """Create the frame containing all control buttons"""
-        # Control buttons frame
+
         control_frame = ttk.Frame(parent_frame)
         control_frame.pack(padx=5, pady=5, fill='x')
         
-        # Button frame for measurement controls
+        # Control buttons frame
         measurement_frame = ttk.LabelFrame(control_frame, text="Measurement Controls")
         measurement_frame.pack(padx=5, pady=5, fill='x')
         
-        # Create a frame for the adjustment type radio buttons
+        # Create a frame for the adjustment type buttons
         adjustment_type_frame = ttk.Frame(measurement_frame)
         adjustment_type_frame.pack(pady=5)
         
@@ -129,27 +132,94 @@ class ScopeAdjustmentApp:
                         variable=self.adjustment_type,
                         value="MIL").pack(side=tk.LEFT, padx=5)
         
+        # Add marking mode selection
+        marking_mode_frame = ttk.Frame(measurement_frame)
+        marking_mode_frame.pack(pady=5)
+        ttk.Label(marking_mode_frame, text="Target Center:").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(marking_mode_frame,
+                       text="Use Image Center",
+                       variable=self.marking_mode,
+                       value="default",
+                       command=self.update_center_display).pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(marking_mode_frame,
+                       text="Mark Center",
+                       variable=self.marking_mode,
+                       value="center",
+                       command=self.update_center_display).pack(side=tk.LEFT, padx=5)
+        
         # Create a frame for the action buttons
         button_frame = ttk.Frame(measurement_frame)
         button_frame.pack(pady=5)
         
         # Add the action buttons
+        self.mark_center_button = ttk.Button(button_frame,
+                                           text="Mark Center",
+                                           command=self.start_marking_center)
+        self.mark_center_button.pack(side=tk.LEFT, padx=5)
+        
         self.mark_shots_button = ttk.Button(button_frame,
-                                        text="Mark Shots",
-                                        command=self.start_marking_shots)
+                                          text="Mark Shots",
+                                          command=self.start_marking_shots)
         self.mark_shots_button.pack(side=tk.LEFT, padx=5)
         
-        self.clear_shots_button = ttk.Button(button_frame,
-                                        text="Clear Shots",
-                                        command=self.clear_shots)
-        self.clear_shots_button.pack(side=tk.LEFT, padx=5)
+        self.clear_button = ttk.Button(button_frame,
+                                     text="Clear All",
+                                     command=self.clear_all)
+        self.clear_button.pack(side=tk.LEFT, padx=5)
         
         self.calculate_button = ttk.Button(button_frame,
-                                        text="Calculate Adjustment",
-                                        command=self.calculate_adjustment)
+                                         text="Calculate Adjustment",
+                                         command=self.calculate_adjustment)
         self.calculate_button.pack(side=tk.LEFT, padx=5)
 
+    def update_center_display(self):
+        """Update the display to show or hide the center point based on mode"""
+
+        if self.image:
+            self.redraw_canvas()
+            if self.marking_mode.get() == "default":
+                center_x, center_y = 250, 250
+                self.canvas.create_oval(center_x-5, center_y-5, center_x+5, center_y+5, 
+                                     fill="blue", tags="center")
+                self.target_center = (center_x, center_y)
+            elif self.target_center:
+                x, y = self.target_center
+                self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="blue", tags="center")
+
+    def start_marking_center(self):
+        """Enable center marking mode"""
+
+        if not self.image:
+            messagebox.showerror("Error", "Please upload an image first")
+            return
+        
+        self.marking_mode.set("center")
+        self.canvas.bind("<Button-1>", self.mark_center)
+        messagebox.showinfo("Mark Center", "Click on the image to mark the center of the target")
+
+    def mark_center(self, event):
+        """Handle marking the center point"""
+
+        self.target_center = (event.x, event.y)
+        self.redraw_canvas()
+        self.canvas.create_oval(event.x-5, event.y-5, event.x+5, event.y+5, 
+                              fill="blue", tags="center")
+        self.canvas.unbind("<Button-1>")
+        messagebox.showinfo("Center Marked", "Target center has been marked")
+
+    def clear_all(self):
+        """Clear all markings from the canvas"""
+
+        self.shot_coordinates = []
+        self.target_center = None
+        if self.marking_mode.get() == "default":
+            self.target_center = (250, 250)
+        self.redraw_canvas()
+        self.update_center_display()
+
     def create_main_widgets(self):
+        """Create all widgets """
+
         # Create notebook for sub-tabs in main tab
         main_notebook = ttk.Notebook(self.main_frame)
         main_notebook.pack(fill='both', expand=True)
@@ -158,9 +228,9 @@ class ScopeAdjustmentApp:
         target_tab = ttk.Frame(main_notebook)
         main_notebook.add(target_tab, text='Target')
         
-        # Ballistics tab
-        ballistics_tab = ttk.Frame(main_notebook)
-        main_notebook.add(ballistics_tab, text='Bullet Information')
+        # Bullet information tab
+        bullet_information_tab = ttk.Frame(main_notebook)
+        main_notebook.add(bullet_information_tab, text='Bullet Information')
         
         # Target information frame
         target_frame = ttk.LabelFrame(target_tab, text="Target Information")
@@ -176,7 +246,7 @@ class ScopeAdjustmentApp:
         ttk.Entry(target_frame, textvariable=self.target_distance).pack()
         
         # Ballistics information frame
-        ballistics_frame = ttk.LabelFrame(ballistics_tab, text="Bullet Information")
+        ballistics_frame = ttk.LabelFrame(bullet_information_tab, text="Bullet Information")
         ballistics_frame.pack(padx=5, pady=5, fill="x")
         
         ttk.Label(ballistics_frame, text="Bullet Manufacturer:").pack()
@@ -191,9 +261,19 @@ class ScopeAdjustmentApp:
         # Rest of the widgets...
         self.create_image_frame(target_tab)
         self.create_control_buttons(target_tab)
+
+    def redraw_canvas(self):
+        """Redraw the canvas with the current image and all markings"""
+
+        self.canvas.delete("all")
+        if self.image:
+            self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
+            for x, y in self.shot_coordinates:
+                self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="red")
     
     def clear_shots(self):
         """Clear all marked shots from the canvas and reset shot coordinates"""
+
         if self.image:
             # Redraw the image
             self.canvas.delete("all")
@@ -205,6 +285,8 @@ class ScopeAdjustmentApp:
             messagebox.showinfo("Clear Shots", "No image loaded")
 
     def create_history_widgets(self):
+        """Create the widgets for the history tab"""
+
         # Create frame for history controls
         control_frame = ttk.Frame(self.history_frame)
         control_frame.pack(fill='x', padx=5, pady=5)
@@ -228,6 +310,7 @@ class ScopeAdjustmentApp:
 
     def clear_history(self):
         """Clear all history from the database"""
+
         if messagebox.askyesno("Clear History", "Are you sure you want to clear all history? This cannot be undone."):
             self.cursor.execute('DELETE FROM calibration_history')
             self.conn.commit()
@@ -236,15 +319,12 @@ class ScopeAdjustmentApp:
 
     def __del__(self):
         """Ensure database connection is closed when the app is closed"""
+
         if hasattr(self, 'conn'):
             self.conn.close()
     
     def upload_image(self):
-        """
-        This function opens a popup that allows a uder to select an image
-        Once the image is selected, it gets resized to 500 x 500
-        This might cause problems when trying to calculate the adjustments on a rectangular target
-        """
+        """Handles the image uploading to the app"""
 
         self.image_path = filedialog.askopenfilename()
         if self.image_path:
@@ -254,22 +334,21 @@ class ScopeAdjustmentApp:
             self.canvas.create_image(0, 0, anchor=tk.NW, image=self.photo)
     
     def start_marking_shots(self):
-        """
-        This functions binds the left mouce click to the mark_shot function defined below
-        Once this mode is enbaled, it doesn't turn off which needs to be fixed
-        """
+        """This functions binds the left mouce click to the mark_shot function defined below"""
+
         self.canvas.bind("<Button-1>", self.mark_shot)
         messagebox.showinfo("Mark Shots", "Click on the image to mark each shot. Press 'Calculate Adjustment' when done.")
     
     def mark_shot(self, event):
-        """
-        This function will keep track of all the coordinates that a user marks
-        """
+        """This function will keep track of all the coordinates that a user marks"""
+
         x, y = event.x, event.y
         self.shot_coordinates.append((x, y))
         self.canvas.create_oval(x-5, y-5, x+5, y+5, fill="red")
 
     def calculate_adjustment(self):
+        """The math for figuring out the adjustments needed to sight in the rifle"""
+
         if not self.shot_coordinates:
             messagebox.showerror("Error", "No shots marked!")
             return
@@ -278,22 +357,18 @@ class ScopeAdjustmentApp:
             target_width = float(self.target_width.get())
             target_height = float(self.target_height.get())
             target_distance = float(self.target_distance.get())
-            #muzzle_velocity = float(self.muzzle_velocity.get())
-            #ballistic_coefficient = float(self.ballistic_coefficient.get())
-            #sight_height = float(self.sight_height.get())
         except ValueError:
             messagebox.showerror("Error", "Please enter valid numeric values for all fields")
             return
         
-        # Calculate bullet drop
-        #bullet_drop = self.ballistic_calculator.calculate_drop_2(
-        #    target_distance, 
-        #    muzzle_velocity,
-        #    ballistic_coefficient,
-        #    sight_height
-        #)
-        
-        center_x, center_y = 250, 250
+        # Get center coordinates based on mode
+        if self.marking_mode.get() == "default":
+            center_x, center_y = 250, 250
+        else:
+            if not self.target_center:
+                messagebox.showerror("Error", "Please mark the target center first")
+                return
+            center_x, center_y = self.target_center
         
         # Calculate average position of shots
         avg_x = sum(x for x, _ in self.shot_coordinates) / len(self.shot_coordinates)
@@ -304,36 +379,32 @@ class ScopeAdjustmentApp:
         diff_y = center_y - avg_y
         
         adjustment_x = (diff_x / 500) * target_width
-        adjustment_y = (diff_y / 500) * target_height
-        
-        # Add bullet drop to vertical adjustment
-        #adjustment_y += bullet_drop
+        adjustment_y = (-diff_y / 500) * target_height
         
         # Convert to MOA or MIL based on selection
         if self.adjustment_type.get() == "MOA":
-            # MOA conversion: 1 MOA = 1.047 inches at 100 yards
             adjustment_x_angular = (adjustment_x / (target_distance / 100)) / 1.047
             adjustment_y_angular = (adjustment_y / (target_distance / 100)) / 1.047
             unit = "MOA"
         else:
-            # MIL conversion: 1 MIL = 3.6 inches at 100 yards
             adjustment_x_angular = (adjustment_x / (target_distance / 100)) / 3.6
             adjustment_y_angular = (adjustment_y / (target_distance / 100)) / 3.6
             unit = "MIL"
         
         # Save to history
         self.save_calibration(target_distance, adjustment_x_angular, adjustment_y_angular, unit,
-                              self.bullet_manufacturer.get(), self.bullet_model.get(), int(self.bullet_weight.get()))
+                            self.bullet_manufacturer.get(), self.bullet_model.get(), 
+                            int(self.bullet_weight.get()) if self.bullet_weight.get() else 0)
         
         # Show results
         messagebox.showinfo("Adjustment Needed", 
                           f"Horizontal: {adjustment_x_angular:.2f} {unit}\n"
                           f"Vertical: {adjustment_y_angular:.2f} {unit}\n"
-                          #f"Bullet Drop: {bullet_drop:.2f} inches\n"
                           f"At {target_distance} yards")
 
     def save_calibration(self, distance, horizontal, vertical, adjustment_type, bullet_manufacturer, bullet_model, bullet_weight):
         """Save calibration data to database"""
+
         user_id = self.current_user if self.current_user else 1  # Default to user 1 if no user system
         self.cursor.execute('''
             INSERT INTO calibration_history 
@@ -346,6 +417,7 @@ class ScopeAdjustmentApp:
 
     def load_history(self):
         """Load and display calibration history"""
+        
         # Clear existing items
         for item in self.history_tree.get_children():
             self.history_tree.delete(item)
